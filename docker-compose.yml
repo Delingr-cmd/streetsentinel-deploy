@@ -1,0 +1,113 @@
+# StreetSentinel all-in-one stack.
+# Default images are the public GHCR tags (spec A.0). 'build:' blocks let the
+# same file build locally when an image is absent (CI publishes :stable).
+name: streetsentinel
+
+services:
+  postgres:
+    image: postgres:18-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cctv
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+      POSTGRES_DB: cctv_platform
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cctv -d cctv_platform"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  migrate:
+    image: ghcr.io/delingr-cmd/streetsentinel-app:stable
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # One-shot: fresh DB → create_all + stamp head; existing DB → upgrade head.
+    command: ["python", "scripts/docker_migrate.py"]
+    restart: "no"
+
+  app:
+    image: ghcr.io/delingr-cmd/streetsentinel-app:stable
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+      INSTANCE_ROLE: ${INSTANCE_ROLE:-active}
+      TUNNEL_TOKEN_PATH: ${TUNNEL_TOKEN_PATH:-/config/tunnel/token}
+      HOST: 0.0.0.0
+      PORT: ${PORT:-8000}
+      WHATSAPP_BRIDGE_URL: http://whatsapp-bridge:3001
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      # Web UI.
+      - "${PORT:-8000}:8000"
+      # FTP control + passive range (published when cameras use FTP uploads).
+      - "${FTP_PORT:-2121}:2121"
+      - "${FTP_PASSIVE_PORT_START:-60000}-${FTP_PASSIVE_PORT_END:-60100}:${FTP_PASSIVE_PORT_START:-60000}-${FTP_PASSIVE_PORT_END:-60100}"
+    volumes:
+      - clips:/app/clips
+      - snapshots:/app/snapshots
+      - recordings:/app/recordings
+      - ftp_uploads:/app/ftp_uploads
+      - report_assets:/app/report_assets
+      - suspect_watchlist:/app/suspect_watchlist
+      - config:/config
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+
+  cloudflared:
+    image: ghcr.io/delingr-cmd/streetsentinel-cloudflared:stable
+    build:
+      context: .
+      dockerfile: deploy/docker/cloudflared.Dockerfile
+    restart: unless-stopped
+    environment:
+      TUNNEL_TOKEN_PATH: ${TUNNEL_TOKEN_PATH:-/config/tunnel/token}
+    volumes:
+      # Shared with app: app writes the token, cloudflared watches it.
+      - config:/config
+
+  whatsapp-bridge:
+    image: ghcr.io/delingr-cmd/streetsentinel-bridge:stable
+    build:
+      context: .
+      dockerfile: whatsapp_bridge/Dockerfile
+    restart: unless-stopped
+    profiles: ["whatsapp"]
+    environment:
+      HOST: 0.0.0.0
+      PORT: 3001
+      WHATSAPP_BRIDGE_API_KEY: ${WHATSAPP_BRIDGE_API_KEY:-}
+    volumes:
+      - bridge_auth:/app/auth
+
+volumes:
+  pgdata:
+  clips:
+  snapshots:
+  recordings:
+  ftp_uploads:
+  report_assets:
+  suspect_watchlist:
+  config:
+  bridge_auth:
