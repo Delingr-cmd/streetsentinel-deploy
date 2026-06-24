@@ -1,6 +1,6 @@
-# StreetSentinel all-in-one stack.
-# Default images are the public GHCR tags (spec A.0). 'build:' blocks let the
-# same file build locally when an image is absent (CI publishes :stable).
+# StreetSentinel all-in-one stack (production / pull-only).
+# Images are pulled from public GHCR — there is no local build context here.
+# (The app source repo's compose keeps `build:` blocks for local development.)
 name: streetsentinel
 
 services:
@@ -22,9 +22,6 @@ services:
 
   migrate:
     image: ghcr.io/delingr-cmd/streetsentinel-app:stable
-    build:
-      context: .
-      dockerfile: Dockerfile
     env_file: .env
     environment:
       DATABASE_URL: ${DATABASE_URL}
@@ -37,9 +34,6 @@ services:
 
   app:
     image: ghcr.io/delingr-cmd/streetsentinel-app:stable
-    build:
-      context: .
-      dockerfile: Dockerfile
     restart: unless-stopped
     env_file: .env
     environment:
@@ -77,9 +71,6 @@ services:
 
   cloudflared:
     image: ghcr.io/delingr-cmd/streetsentinel-cloudflared:stable
-    build:
-      context: .
-      dockerfile: deploy/docker/cloudflared.Dockerfile
     restart: unless-stopped
     environment:
       TUNNEL_TOKEN_PATH: ${TUNNEL_TOKEN_PATH:-/config/tunnel/token}
@@ -89,9 +80,6 @@ services:
 
   whatsapp-bridge:
     image: ghcr.io/delingr-cmd/streetsentinel-bridge:stable
-    build:
-      context: .
-      dockerfile: whatsapp_bridge/Dockerfile
     restart: unless-stopped
     profiles: ["whatsapp"]
     environment:
