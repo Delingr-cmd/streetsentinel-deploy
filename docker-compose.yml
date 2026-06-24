@@ -43,7 +43,9 @@ services:
       INSTANCE_ROLE: ${INSTANCE_ROLE:-active}
       TUNNEL_TOKEN_PATH: ${TUNNEL_TOKEN_PATH:-/config/tunnel/token}
       HOST: 0.0.0.0
-      PORT: ${PORT:-8000}
+      # App always binds 8000 INSIDE the container (healthcheck + mapping target).
+      # The configurable ${PORT} below only sets the HOST-side port.
+      PORT: "8000"
       WHATSAPP_BRIDGE_URL: http://whatsapp-bridge:3001
     depends_on:
       postgres:
